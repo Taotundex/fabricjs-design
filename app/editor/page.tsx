@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { jsPDF } from "jspdf";
 import { Button } from "@/components/ui/button";
 import type * as fabricType from "fabric";
-import Image from "next/image";
+import NextImage from "next/image"; // ✅ renamed to avoid conflict
 
 interface Project {
     name: string;
@@ -21,13 +21,15 @@ export default function EditorPage() {
     const undoStack = useRef<string[]>([]);
     const redoStack = useRef<string[]>([]);
     const [isReady, setIsReady] = useState(false);
-    const [error, setError] = useState<string | null>(null);
     const [projects, setProjects] = useState<Project[]>([]);
     const isApplyingRef = useRef(false);
-    const handlersRef = useRef<{ undo: () => void; redo: () => void; deleteSelected: () => void }>({
+
+    const handlersRef = useRef({
         undo: () => { },
         redo: () => { },
         deleteSelected: () => { },
+        saveProject: () => { },
+        loadLatest: () => { },
     });
 
     // ===================== STATE SAVE / LOAD =====================
@@ -134,7 +136,7 @@ export default function EditorPage() {
         const name = prompt("Enter project name:")?.trim();
         if (!name) return;
 
-        const thumbnail = c.toDataURL({ format: "png", quality: 0.6 });
+        const thumbnail = c.toDataURL({ format: "png", quality: 0.6, multiplier: 1 });
         const project: Project = {
             name,
             thumbnail,
@@ -157,6 +159,12 @@ export default function EditorPage() {
         const updated = projects.filter((p) => p.name !== name);
         localStorage.setItem("projects", JSON.stringify(updated));
         setProjects(updated);
+    };
+
+    const loadLatestProject = () => {
+        if (!projects.length) return;
+        const latest = [...projects].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+        if (latest) loadProject(latest);
     };
 
     // ===================== TOOLS =====================
@@ -194,7 +202,7 @@ export default function EditorPage() {
         const reader = new FileReader();
         reader.onload = () => {
             const result = reader.result as string;
-            const imgEl = new Image();
+            const imgEl = new window.Image(); // ✅ explicitly use window.Image
             imgEl.onload = () => {
                 const imgInstance = new fabricRef.current.Image(imgEl, { left: 100, top: 100 });
                 canvasRef.current?.add(imgInstance);
@@ -232,29 +240,35 @@ export default function EditorPage() {
         }
     };
 
-    // keep handler refs up-to-date so the keydown listener can call latest functions
-    handlersRef.current = { undo, redo, deleteSelected };
+    // keep handlers updated
+    handlersRef.current = { undo, redo, deleteSelected, saveProject, loadLatest: loadLatestProject };
 
-    // Keyboard shortcuts: Ctrl/Cmd+Z (undo), Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y (redo), Delete/Backspace (delete)
+    // ===================== Keyboard Shortcuts =====================
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             const active = document.activeElement as HTMLElement | null;
             const isEditable = !!active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable);
-            if (isEditable) return; // don't intercept typing
+            if (isEditable) return;
 
             const isMod = e.ctrlKey || e.metaKey;
-            const key = e.key;
+            const key = e.key.toLowerCase();
 
-            if (isMod && (key === "z" || key === "Z")) {
+            if (isMod && key === "z") {
                 e.preventDefault();
-                if (e.shiftKey) handlersRef.current.redo(); else handlersRef.current.undo();
-            } else if (isMod && (key === "y" || key === "Y")) {
+                if (e.shiftKey) handlersRef.current.redo();
+                else handlersRef.current.undo();
+            } else if (isMod && key === "y") {
                 e.preventDefault();
                 handlersRef.current.redo();
-            } else if (key === "Delete" || key === "Backspace") {
-                // only delete when not focused in an input
+            } else if (key === "delete" || key === "backspace") {
                 e.preventDefault();
                 handlersRef.current.deleteSelected();
+            } else if (isMod && key === "s") {
+                e.preventDefault();
+                handlersRef.current.saveProject();
+            } else if (isMod && key === "o") {
+                e.preventDefault();
+                handlersRef.current.loadLatest();
             }
         };
 
@@ -264,12 +278,14 @@ export default function EditorPage() {
 
     // ===================== EXPORT =====================
     const exportImage = (type: "png" | "jpg") => {
-        const data = canvasRef.current?.toDataURL({ format: type });
+        const format = type === "jpg" ? "jpeg" : type;
+        const data = canvasRef.current?.toDataURL({ format });
         const link = document.createElement("a");
         link.href = data!;
         link.download = `canvas.${type}`;
         link.click();
     };
+
 
     const exportPDF = () => {
         const data = canvasRef.current?.toDataURL({ format: "png" });
@@ -290,16 +306,10 @@ export default function EditorPage() {
     const loadJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
-
         const reader = new FileReader();
         reader.onload = () => {
-            try {
-                const jsonString = reader.result as string;
-                applyJSON(jsonString);
-                console.log(`✅ Loaded project: ${file.name}`);
-            } catch (err) {
-                console.error("❌ Invalid JSON file:", err);
-            }
+            const jsonString = reader.result as string;
+            applyJSON(jsonString);
             (e.target as HTMLInputElement).value = "";
         };
         reader.readAsText(file);
@@ -324,11 +334,11 @@ export default function EditorPage() {
                             className="flex items-center gap-3 p-3 hover:bg-gray-100 cursor-pointer group"
                             onClick={() => loadProject(project)}
                         >
-                            <Image
+                            <NextImage
                                 src={project.thumbnail}
                                 alt={project.name}
-                                width={12}
-                                height={12}
+                                width={48}
+                                height={48}
                                 className="w-12 h-12 object-cover rounded border"
                             />
                             <div className="flex-1">
