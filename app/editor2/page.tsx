@@ -6,12 +6,19 @@ import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
+    DropdownMenuItem,
     DropdownMenuLabel,
+    DropdownMenuPortal,
     DropdownMenuSeparator,
+    DropdownMenuShortcut,
+    DropdownMenuSub,
+    DropdownMenuSubContent,
+    DropdownMenuSubTrigger,
     DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+} from "@/components/ui/dropdown-menu"
 import type * as fabricType from "fabric";
-import NextImage from "next/image";
+import NextImage from "next/image"; // ✅ renamed to avoid conflict
 
 interface Project {
     name: string;
@@ -19,8 +26,6 @@ interface Project {
     json: string;
     updatedAt: number;
 }
-
-type ActiveType = "text" | "shape" | "image" | null;
 
 export default function EditorPage() {
     const canvasRef = useRef<fabricType.Canvas | null>(null);
@@ -31,8 +36,6 @@ export default function EditorPage() {
     const redoStack = useRef<string[]>([]);
     const [isReady, setIsReady] = useState(false);
     const [projects, setProjects] = useState<Project[]>([]);
-    const [activeType, setActiveType] = useState<ActiveType>(null);
-    const [activeAttrs, setActiveAttrs] = useState<any>({});
     const isApplyingRef = useRef(false);
 
     const handlersRef = useRef({
@@ -129,13 +132,6 @@ export default function EditorPage() {
                 if (!isApplyingRef.current) saveCurrentState();
             });
 
-            c.on("selection:created", updateActiveObject);
-            c.on("selection:updated", updateActiveObject);
-            c.on("selection:cleared", () => {
-                setActiveType(null);
-                setActiveAttrs({});
-            });
-
             // Load previous canvas
             const saved = localStorage.getItem("canvas_state");
             if (saved) applyJSON(saved);
@@ -158,45 +154,6 @@ export default function EditorPage() {
             fabricRef.current = null;
         };
     }, []);
-
-    const updateActiveObject = () => {
-        const obj = canvasRef.current?.getActiveObject();
-        if (!obj) {
-            setActiveType(null);
-            setActiveAttrs({});
-            return;
-        }
-
-        if (obj.type === "i-text") {
-            setActiveType("text");
-            setActiveAttrs({
-                fill: obj.fill,
-                fontSize: obj.fontSize,
-                fontWeight: obj.fontWeight,
-                fontStyle: obj.fontStyle,
-                underline: obj.underline,
-            });
-        } else if (["rect", "circle", "triangle"].includes(obj.type)) {
-            setActiveType("shape");
-            setActiveAttrs({
-                fill: obj.fill,
-                stroke: obj.stroke,
-                strokeWidth: obj.strokeWidth,
-            });
-        } else if (obj.type === "image") {
-            setActiveType("image");
-            setActiveAttrs({ opacity: obj.opacity });
-        }
-    };
-
-    const updateAttr = (attr: string, value: any) => {
-        const obj = canvasRef.current?.getActiveObject();
-        if (!obj) return;
-        obj.set(attr, value);
-        canvasRef.current?.renderAll();
-        setActiveAttrs((prev: any) => ({ ...prev, [attr]: value }));
-        saveCurrentState();
-    };
 
     // ===================== PROJECTS =====================
     const loadProjects = () => {
@@ -477,172 +434,86 @@ export default function EditorPage() {
     // ===================== RENDER =====================
     return (
         <div className="flex h-screen bg-gray-100">
-            {/* ===== LEFT TOOLS ===== */}
-            <div className="flex flex-col w-[200px] gap-2 bg-white shadow p-3 border-b">
-                <Button size='lg' onClick={() => addShape("rect")}>Rectangle</Button>
-                <Button size='lg' onClick={() => addShape("circle")}>Circle</Button>
-                <Button size='lg' onClick={() => addShape("triangle")}>Triangle</Button>
-                <Button size='lg' onClick={addText}>Text</Button>
+            {/* MAIN EDITOR */}
+            <div className="flex gap-10 w-full">
+                <div className="flex flex-col w-[200px] gap-2 bg-white shadow p-3 border-b">
+                    <Button size='lg' onClick={() => addShape("rect")}>Rectangle</Button>
+                    <Button size='lg' onClick={() => addShape("circle")}>Circle</Button>
+                    <Button size='lg' onClick={() => addShape("triangle")}>Triangle</Button>
+                    <Button size='lg' onClick={addText}>Text</Button>
 
-                <label className="text-center py-2 cursor-pointer bg-blue-500 text-white px-3 rounded-md">
-                    Upload Image
-                    <input type="file" accept="image/*" className="hidden" onChange={handleUpload} />
-                </label>
+                    <label className="text-center py-2 cursor-pointer bg-blue-500 text-white px-3 rounded-md">
+                        Upload Image
+                        <input type="file" accept="image/*" className="hidden" onChange={handleUpload} />
+                    </label>
 
-                <Button size='lg' variant="destructive" onClick={deleteSelected}>
-                    Delete
-                </Button>
-                <Button size='lg' onClick={undo}>Undo</Button>
-                <Button size='lg' onClick={redo}>Redo</Button>
-                <Button size='lg' variant="secondary" onClick={toggleLock}>
-                    Lock / Unlock
-                </Button>
-                <Button size='lg' variant="secondary" onClick={unlockAll}>
-                    Unlock All
-                </Button>
+                    <Button size='lg' variant="destructive" onClick={deleteSelected}>
+                        Delete
+                    </Button>
+                    <Button size='lg' onClick={undo}>Undo</Button>
+                    <Button size='lg' onClick={redo}>Redo</Button>
 
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button size='lg' variant="outline">Export</Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent className="w-20" align="start">
-                        <DropdownMenuLabel>
-                            <Button size='lg' variant="outline" onClick={() => exportImage("png")}>
-                                PNG
-                            </Button>
-                        </DropdownMenuLabel>
-                        <DropdownMenuLabel>
-                            <Button size='lg' variant="outline" onClick={() => exportImage("jpg")}>
-                                JPG
-                            </Button>
-                        </DropdownMenuLabel>
-                        <DropdownMenuLabel>
-                            <Button size='lg' variant="outline" onClick={exportPDF}>
-                                PDF
-                            </Button>
-                        </DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuLabel>
-                            <Button size='lg' variant="outline" onClick={saveJSON}>
-                                JSON
-                            </Button>
-                        </DropdownMenuLabel>
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                    {/* 🔒 Lock / Unlock buttons */}
+                    <Button size='lg' variant="secondary" onClick={toggleLock}>
+                        Lock / Unlock
+                    </Button>
+                    <Button size='lg' variant="secondary" onClick={unlockAll}>
+                        Unlock All
+                    </Button>
 
-                <label className="cursor-pointer border rounded-md px-3 py-2">
-                    Load JSON
-                    <input type="file" accept=".json" className="hidden" onChange={loadJSON} />
-                </label>
-            </div>
 
-            {/* ===== MAIN CANVAS + ATTRIBUTES ===== */}
-            <div className="flex flex-col flex-1">
-                {/* Dynamic Top Bar */}
-                {activeType && (
-                    <div className="flex items-center gap-4 p-2 bg-white border-b shadow-sm">
-                        {activeType === "text" && (
-                            <>
-                                <label>
-                                    Color:
-                                    <input
-                                        type="color"
-                                        value={activeAttrs.fill || "#000000"}
-                                        onChange={(e) => updateAttr("fill", e.target.value)}
-                                        className="ml-2"
-                                    />
-                                </label>
-                                <label>
-                                    Font Size:
-                                    <input
-                                        type="number"
-                                        value={activeAttrs.fontSize || 24}
-                                        onChange={(e) => updateAttr("fontSize", parseInt(e.target.value))}
-                                        className="ml-2 w-20"
-                                    />
-                                </label>
-                                <Button
-                                    variant={activeAttrs.fontWeight === "bold" ? "default" : "outline"}
-                                    onClick={() =>
-                                        updateAttr("fontWeight", activeAttrs.fontWeight === "bold" ? "normal" : "bold")
-                                    }
-                                >
-                                    B
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button size='lg' variant="outline">Save as</Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent className="w-20" align="start">
+                            <DropdownMenuLabel>
+                                <Button size='lg' variant="outline" onClick={() => exportImage("png")}>
+                                    PNG
                                 </Button>
-                                <Button
-                                    variant={activeAttrs.fontStyle === "italic" ? "default" : "outline"}
-                                    onClick={() =>
-                                        updateAttr("fontStyle", activeAttrs.fontStyle === "italic" ? "normal" : "italic")
-                                    }
-                                >
-                                    I
+                            </DropdownMenuLabel>
+                            <DropdownMenuLabel>
+                                <Button size='lg' variant="outline" onClick={() => exportImage("jpg")}>
+                                    JPG
                                 </Button>
-                                <Button
-                                    variant={activeAttrs.underline ? "default" : "outline"}
-                                    onClick={() => updateAttr("underline", !activeAttrs.underline)}
-                                >
-                                    U
+                            </DropdownMenuLabel>
+                            <DropdownMenuLabel>
+                                <Button size='lg' variant="outline" onClick={exportPDF}>
+                                    PDF
                                 </Button>
-                            </>
-                        )}
+                            </DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuLabel>
+                                <Button size='lg' variant="outline" onClick={saveJSON}>
+                                    JSON
+                                </Button>
+                            </DropdownMenuLabel>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                    {/* <Button size='lg' variant="outline" onClick={() => exportImage("png")}>
+                        PNG
+                    </Button>
+                    <Button variant="outline" onClick={() => exportImage("jpg")}>
+                        JPG
+                    </Button>
+                    <Button variant="outline" onClick={exportPDF}>
+                        PDF
+                    </Button>
+                    <Button variant="outline" onClick={saveJSON}>
+                        Save JSON
+                    </Button> */}
 
-                        {activeType === "shape" && (
-                            <>
-                                <label>
-                                    Fill:
-                                    <input
-                                        type="color"
-                                        value={activeAttrs.fill || "#000000"}
-                                        onChange={(e) => updateAttr("fill", e.target.value)}
-                                        className="ml-2"
-                                    />
-                                </label>
-                                <label>
-                                    Stroke:
-                                    <input
-                                        type="color"
-                                        value={activeAttrs.stroke || "#000000"}
-                                        onChange={(e) => updateAttr("stroke", e.target.value)}
-                                        className="ml-2"
-                                    />
-                                </label>
-                                <label>
-                                    Stroke Width:
-                                    <input
-                                        type="number"
-                                        value={activeAttrs.strokeWidth || 1}
-                                        onChange={(e) => updateAttr("strokeWidth", parseFloat(e.target.value))}
-                                        className="ml-2 w-20"
-                                    />
-                                </label>
-                            </>
-                        )}
+                    <label className="cursor-pointer border rounded-md px-3 py-1">
+                        Load JSON
+                        <input type="file" accept=".json" className="hidden" onChange={loadJSON} />
+                    </label>
+                </div>
 
-                        {activeType === "image" && (
-                            <>
-                                <label>
-                                    Opacity:
-                                    <input
-                                        type="range"
-                                        min={0}
-                                        max={1}
-                                        step={0.05}
-                                        value={activeAttrs.opacity || 1}
-                                        onChange={(e) => updateAttr("opacity", parseFloat(e.target.value))}
-                                        className="ml-2 w-40"
-                                    />
-                                </label>
-                            </>
-                        )}
-                    </div>
-                )}
-
-                <div className="flex justify-center items-center flex-1 overflow-auto">
+                <div className="flex justify-center items-center overflow-auto w-full">
                     <canvas ref={canvasEl} className="border shadow-lg rounded-lg" />
                 </div>
             </div>
-
-            {/* ===== RIGHT SIDEBAR ===== */}
+            {/* LEFT SIDEBAR */}
             <aside className="w-64 bg-white border-r shadow-md flex flex-col">
                 <div className="p-3 border-b flex justify-between items-center">
                     <h2 className="font-semibold text-lg">Projects</h2>
