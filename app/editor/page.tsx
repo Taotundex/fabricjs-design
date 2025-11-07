@@ -59,22 +59,29 @@ export default function EditorPage() {
         }
     };
 
+    const [isLoading, setIsLoading] = useState(false);
+
     const applyJSON = (jsonString: string) => {
         const canvas = canvasRef.current;
         if (!canvas) return;
         try {
+            setIsLoading(true);
             isApplyingRef.current = true;
             canvas.clear();
             canvas.loadFromJSON(jsonString, () => {
                 canvas.renderAll();
-                setTimeout(() => canvas.renderAll(), 50);
-                undoStack.current.push(jsonString);
-                redoStack.current = [];
-                isApplyingRef.current = false;
+                setTimeout(() => {
+                    canvas.renderAll();
+                    undoStack.current.push(jsonString);
+                    redoStack.current = [];
+                    isApplyingRef.current = false;
+                    setIsLoading(false);
+                }, 50);
             });
         } catch (err) {
             console.error("applyJSON failed:", err);
             isApplyingRef.current = false;
+            setIsLoading(false);
         }
     };
 
@@ -465,14 +472,27 @@ export default function EditorPage() {
     const loadJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
+
         const reader = new FileReader();
         reader.onload = () => {
-            const jsonString = reader.result as string;
-            applyJSON(jsonString);
+            try {
+                const jsonString = reader.result as string;
+                // Validate JSON structure before applying
+                const parsed = JSON.parse(jsonString);
+                if (parsed && parsed.objects) {
+                    applyJSON(jsonString);
+                } else {
+                    alert("Invalid project file format");
+                }
+            } catch (error) {
+                alert("Error loading JSON file: " + error);
+            }
             (e.target as HTMLInputElement).value = "";
         };
         reader.readAsText(file);
     };
+
+
 
     // ===================== RENDER =====================
     return (
@@ -538,6 +558,11 @@ export default function EditorPage() {
 
             {/* ===== MAIN CANVAS + ATTRIBUTES ===== */}
             <div className="flex flex-col flex-1">
+                {isLoading && (
+                    <div className="fixed top-4 right-4 bg-blue-500 text-white px-4 py-2 rounded shadow">
+                        Loading project...
+                    </div>
+                )}
                 {/* Dynamic Top Bar */}
                 {activeType && (
                     <div className="flex items-center gap-4 p-2 bg-white border-b shadow-sm">

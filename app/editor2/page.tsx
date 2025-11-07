@@ -6,19 +6,12 @@ import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
     DropdownMenuContent,
-    DropdownMenuGroup,
-    DropdownMenuItem,
     DropdownMenuLabel,
-    DropdownMenuPortal,
     DropdownMenuSeparator,
-    DropdownMenuShortcut,
-    DropdownMenuSub,
-    DropdownMenuSubContent,
-    DropdownMenuSubTrigger,
     DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+} from "@/components/ui/dropdown-menu";
 import type * as fabricType from "fabric";
-import NextImage from "next/image"; // ✅ renamed to avoid conflict
+import NextImage from "next/image";
 
 interface Project {
     name: string;
@@ -26,6 +19,8 @@ interface Project {
     json: string;
     updatedAt: number;
 }
+
+type ActiveType = "text" | "shape" | "image" | null;
 
 export default function EditorPage() {
     const canvasRef = useRef<fabricType.Canvas | null>(null);
@@ -36,6 +31,8 @@ export default function EditorPage() {
     const redoStack = useRef<string[]>([]);
     const [isReady, setIsReady] = useState(false);
     const [projects, setProjects] = useState<Project[]>([]);
+    const [activeType, setActiveType] = useState<ActiveType>(null);
+    const [activeAttrs, setActiveAttrs] = useState<any>({});
     const isApplyingRef = useRef(false);
 
     const handlersRef = useRef({
@@ -84,76 +81,141 @@ export default function EditorPage() {
     // ===================== INIT FABRIC =====================
     useEffect(() => {
         let disposed = false;
+        
         const initFabric = async () => {
             if (!canvasEl.current) {
+                console.log("Canvas element not ready, retrying...");
                 setTimeout(initFabric, 100);
                 return;
             }
             if (canvasRef.current || disposed) return;
 
-            const fabricModule = await import("fabric");
-            const fabric = (fabricModule as any).fabric || fabricModule.default || fabricModule;
-            fabricRef.current = fabric;
+            try {
+                console.log("Initializing Fabric.js...");
+                const fabricModule = await import("fabric");
+                const fabric = (fabricModule as any).fabric || fabricModule.default || fabricModule;
+                fabricRef.current = fabric;
 
-            // ✅ Extend Fabric's toObject so locking info persists in JSON
-            fabric.Object.prototype.toObject = (function (toObject) {
-                return function (this: any, propertiesToInclude: string[] = []) {
-                    return toObject.call(this, [
-                        ...propertiesToInclude,
-                        "selectable",
-                        "evented",
-                        "lockMovementX",
-                        "lockMovementY",
-                        "lockRotation",
-                        "lockScalingX",
-                        "lockScalingY",
-                        "hasControls",
-                        "opacity",
-                    ]);
-                };
-            })(fabric.Object.prototype.toObject);
+                // Extend fabric.Object to include custom properties
+                fabric.Object.prototype.toObject = (function (toObject) {
+                    return function (this: any, propertiesToInclude: string[] = []) {
+                        return toObject.call(this, [
+                            ...propertiesToInclude,
+                            "editableId",
+                            "isLocked",
+                            "selectable",
+                            "evented",
+                            "lockMovementX",
+                            "lockMovementY",
+                            "lockRotation",
+                            "lockScalingX",
+                            "lockScalingY",
+                            "hasControls",
+                        ]);
+                    };
+                })(fabric.Object.prototype.toObject);
 
+                console.log("Creating canvas...");
+                const c = new fabric.Canvas(canvasEl.current, {
+                    width: 1000,
+                    height: 600,
+                    backgroundColor: "#fff",
+                    selection: true,
+                });
+                canvasRef.current = c;
 
-            const c = new fabric.Canvas(canvasEl.current, {
-                width: 1000,
-                height: 600,
-                backgroundColor: "#fff",
-                selection: true,
-            });
-            canvasRef.current = c;
+                // Set up event listeners
+                c.on("object:added", () => {
+                    if (!isApplyingRef.current) saveCurrentState();
+                });
+                c.on("object:modified", () => {
+                    if (!isApplyingRef.current) saveCurrentState();
+                });
+                c.on("object:removed", () => {
+                    if (!isApplyingRef.current) saveCurrentState();
+                });
 
-            c.on("object:added", () => {
-                if (!isApplyingRef.current) saveCurrentState();
-            });
-            c.on("object:modified", () => {
-                if (!isApplyingRef.current) saveCurrentState();
-            });
-            c.on("object:removed", () => {
-                if (!isApplyingRef.current) saveCurrentState();
-            });
+                c.on("selection:created", updateActiveObject);
+                c.on("selection:updated", updateActiveObject);
+                c.on("selection:cleared", () => {
+                    setActiveType(null);
+                    setActiveAttrs({});
+                });
 
-            // Load previous canvas
-            const saved = localStorage.getItem("canvas_state");
-            if (saved) applyJSON(saved);
-            else undoStack.current.push(JSON.stringify(c.toJSON()));
+                // Load previous canvas state
+                const saved = localStorage.getItem("canvas_state");
+                if (saved) {
+                    console.log("Loading saved state...");
+                    applyJSON(saved);
+                } else {
+                    console.log("No saved state, starting fresh");
+                    undoStack.current.push(JSON.stringify(c.toJSON()));
+                }
 
-            setIsReady(true);
-            loadProjects();
+                setIsReady(true);
+                loadProjects();
+                console.log("Fabric.js initialized successfully");
+
+            } catch (error) {
+                console.error("Failed to initialize Fabric.js:", error);
+            }
         };
 
         initFabric();
 
         return () => {
+            console.log("Cleaning up Fabric.js...");
             disposed = true;
             if (canvasRef.current) {
                 try {
                     canvasRef.current.dispose();
-                } catch { }
+                } catch (error) {
+                    console.error("Error disposing canvas:", error);
+                }
                 canvasRef.current = null;
             }
             fabricRef.current = null;
         };
     }, []);
+
+    const updateActiveObject = () => {
+        const obj = canvasRef.current?.getActiveObject();
+        if (!obj) {
+            setActiveType(null);
+            setActiveAttrs({});
+            return;
+        }
+
+        if (obj.type === "i-text") {
+            setActiveType("text");
+            setActiveAttrs({
+                fill: obj.fill,
+                fontSize: obj.fontSize,
+                fontWeight: obj.fontWeight,
+                fontStyle: obj.fontStyle,
+                underline: obj.underline,
+            });
+        } else if (["rect", "circle", "triangle"].includes(obj.type)) {
+            setActiveType("shape");
+            setActiveAttrs({
+                fill: obj.fill,
+                stroke: obj.stroke,
+                strokeWidth: obj.strokeWidth,
+            });
+        } else if (obj.type === "image") {
+            setActiveType("image");
+            setActiveAttrs({ opacity: obj.opacity });
+        }
+    };
+
+    const updateAttr = (attr: string, value: any) => {
+        const obj = canvasRef.current?.getActiveObject();
+        if (!obj) return;
+        obj.set(attr, value);
+        canvasRef.current?.renderAll();
+        setActiveAttrs((prev: any) => ({ ...prev, [attr]: value }));
+        saveCurrentState();
+    };
 
     // ===================== PROJECTS =====================
     const loadProjects = () => {
@@ -209,6 +271,13 @@ export default function EditorPage() {
     };
 
     // ===================== TOOLS =====================
+    const addUniqueId = (obj: any) => {
+        if (!obj.editableId) {
+            obj.editableId = crypto.randomUUID();
+        }
+        return obj;
+    };
+
     const addShape = (type: "rect" | "circle" | "triangle") => {
         if (!fabricRef.current || !canvasRef.current) return;
         const fabric = fabricRef.current;
@@ -242,7 +311,7 @@ export default function EditorPage() {
                 });
                 break;
         }
-
+        addUniqueId(shape);
         canvasRef.current.add(shape);
     };
 
@@ -255,6 +324,7 @@ export default function EditorPage() {
             fontSize: 24,
             fill: "#000",
         });
+        addUniqueId(text);
         canvasRef.current.add(text);
     };
 
@@ -271,6 +341,7 @@ export default function EditorPage() {
                     left: 100,
                     top: 100,
                 });
+                addUniqueId(imgInstance);
                 canvasRef.current?.add(imgInstance);
                 canvasRef.current?.renderAll();
                 saveCurrentState();
@@ -316,18 +387,19 @@ export default function EditorPage() {
             return;
         }
 
-        const isLocked = !obj.selectable;
+        const isNowLocked = !obj.isLocked;
 
         obj.set({
-            lockMovementX: isLocked ? false : true,
-            lockMovementY: isLocked ? false : true,
-            lockRotation: isLocked ? false : true,
-            lockScalingX: isLocked ? false : true,
-            lockScalingY: isLocked ? false : true,
-            selectable: isLocked ? true : false,
-            evented: isLocked ? true : false,
-            hasControls: isLocked ? true : false,
-            opacity: isLocked ? 1 : 0.6, // visual cue when locked
+            isLocked: isNowLocked,
+            lockMovementX: isNowLocked,
+            lockMovementY: isNowLocked,
+            lockRotation: isNowLocked,
+            lockScalingX: isNowLocked,
+            lockScalingY: isNowLocked,
+            selectable: !isNowLocked,
+            evented: !isNowLocked,
+            hasControls: !isNowLocked,
+            opacity: isNowLocked ? 0.6 : 1,
         });
 
         canvas.discardActiveObject();
@@ -340,6 +412,7 @@ export default function EditorPage() {
         if (!canvas) return;
         canvas.getObjects().forEach((obj) => {
             obj.set({
+                isLocked: false,
                 lockMovementX: false,
                 lockMovementY: false,
                 lockRotation: false,
@@ -434,86 +507,181 @@ export default function EditorPage() {
     // ===================== RENDER =====================
     return (
         <div className="flex h-screen bg-gray-100">
-            {/* MAIN EDITOR */}
-            <div className="flex gap-10 w-full">
-                <div className="flex flex-col w-[200px] gap-2 bg-white shadow p-3 border-b">
-                    <Button size='lg' onClick={() => addShape("rect")}>Rectangle</Button>
-                    <Button size='lg' onClick={() => addShape("circle")}>Circle</Button>
-                    <Button size='lg' onClick={() => addShape("triangle")}>Triangle</Button>
-                    <Button size='lg' onClick={addText}>Text</Button>
+            {/* ===== LEFT TOOLS ===== */}
+            <div className="flex flex-col w-[200px] gap-2 bg-white shadow p-3 border-b">
+                <Button size='lg' onClick={() => addShape("rect")}>Rectangle</Button>
+                <Button size='lg' onClick={() => addShape("circle")}>Circle</Button>
+                <Button size='lg' onClick={() => addShape("triangle")}>Triangle</Button>
+                <Button size='lg' onClick={addText}>Text</Button>
 
-                    <label className="text-center py-2 cursor-pointer bg-blue-500 text-white px-3 rounded-md">
-                        Upload Image
-                        <input type="file" accept="image/*" className="hidden" onChange={handleUpload} />
-                    </label>
+                <label className="text-center py-2 cursor-pointer bg-blue-500 text-white px-3 rounded-md">
+                    Upload Image
+                    <input type="file" accept="image/*" className="hidden" onChange={handleUpload} />
+                </label>
 
-                    <Button size='lg' variant="destructive" onClick={deleteSelected}>
-                        Delete
-                    </Button>
-                    <Button size='lg' onClick={undo}>Undo</Button>
-                    <Button size='lg' onClick={redo}>Redo</Button>
+                <Button size='lg' variant="destructive" onClick={deleteSelected}>
+                    Delete
+                </Button>
+                <Button size='lg' onClick={undo}>Undo</Button>
+                <Button size='lg' onClick={redo}>Redo</Button>
+                <Button size='lg' variant="secondary" onClick={toggleLock}>
+                    Lock / Unlock
+                </Button>
+                <Button size='lg' variant="secondary" onClick={unlockAll}>
+                    Unlock All
+                </Button>
 
-                    {/* 🔒 Lock / Unlock buttons */}
-                    <Button size='lg' variant="secondary" onClick={toggleLock}>
-                        Lock / Unlock
-                    </Button>
-                    <Button size='lg' variant="secondary" onClick={unlockAll}>
-                        Unlock All
-                    </Button>
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button size='lg' variant="outline">Export</Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent className="w-20" align="start">
+                        <DropdownMenuLabel>
+                            <Button size='lg' variant="outline" onClick={() => exportImage("png")}>
+                                PNG
+                            </Button>
+                        </DropdownMenuLabel>
+                        <DropdownMenuLabel>
+                            <Button size='lg' variant="outline" onClick={() => exportImage("jpg")}>
+                                JPG
+                            </Button>
+                        </DropdownMenuLabel>
+                        <DropdownMenuLabel>
+                            <Button size='lg' variant="outline" onClick={exportPDF}>
+                                PDF
+                            </Button>
+                        </DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuLabel>
+                            <Button size='lg' variant="outline" onClick={saveJSON}>
+                                JSON
+                            </Button>
+                        </DropdownMenuLabel>
+                    </DropdownMenuContent>
+                </DropdownMenu>
 
+                <label className="cursor-pointer border rounded-md px-3 py-2">
+                    Load JSON
+                    <input type="file" accept=".json" className="hidden" onChange={loadJSON} />
+                </label>
+            </div>
 
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button size='lg' variant="outline">Save as</Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent className="w-20" align="start">
-                            <DropdownMenuLabel>
-                                <Button size='lg' variant="outline" onClick={() => exportImage("png")}>
-                                    PNG
+            {/* ===== MAIN CANVAS + ATTRIBUTES ===== */}
+            <div className="flex flex-col flex-1">
+                {/* Dynamic Top Bar */}
+                {activeType && (
+                    <div className="flex items-center gap-4 p-2 bg-white border-b shadow-sm">
+                        {activeType === "text" && (
+                            <>
+                                <label>
+                                    Color:
+                                    <input
+                                        type="color"
+                                        value={activeAttrs.fill || "#000000"}
+                                        onChange={(e) => updateAttr("fill", e.target.value)}
+                                        className="ml-2"
+                                    />
+                                </label>
+                                <label>
+                                    Font Size:
+                                    <input
+                                        type="number"
+                                        value={activeAttrs.fontSize || 24}
+                                        onChange={(e) => updateAttr("fontSize", parseInt(e.target.value))}
+                                        className="ml-2 w-20"
+                                    />
+                                </label>
+                                <Button
+                                    variant={activeAttrs.fontWeight === "bold" ? "default" : "outline"}
+                                    onClick={() =>
+                                        updateAttr("fontWeight", activeAttrs.fontWeight === "bold" ? "normal" : "bold")
+                                    }
+                                >
+                                    B
                                 </Button>
-                            </DropdownMenuLabel>
-                            <DropdownMenuLabel>
-                                <Button size='lg' variant="outline" onClick={() => exportImage("jpg")}>
-                                    JPG
+                                <Button
+                                    variant={activeAttrs.fontStyle === "italic" ? "default" : "outline"}
+                                    onClick={() =>
+                                        updateAttr("fontStyle", activeAttrs.fontStyle === "italic" ? "normal" : "italic")
+                                    }
+                                >
+                                    I
                                 </Button>
-                            </DropdownMenuLabel>
-                            <DropdownMenuLabel>
-                                <Button size='lg' variant="outline" onClick={exportPDF}>
-                                    PDF
+                                <Button
+                                    variant={activeAttrs.underline ? "default" : "outline"}
+                                    onClick={() => updateAttr("underline", !activeAttrs.underline)}
+                                >
+                                    U
                                 </Button>
-                            </DropdownMenuLabel>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuLabel>
-                                <Button size='lg' variant="outline" onClick={saveJSON}>
-                                    JSON
-                                </Button>
-                            </DropdownMenuLabel>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                    {/* <Button size='lg' variant="outline" onClick={() => exportImage("png")}>
-                        PNG
-                    </Button>
-                    <Button variant="outline" onClick={() => exportImage("jpg")}>
-                        JPG
-                    </Button>
-                    <Button variant="outline" onClick={exportPDF}>
-                        PDF
-                    </Button>
-                    <Button variant="outline" onClick={saveJSON}>
-                        Save JSON
-                    </Button> */}
+                            </>
+                        )}
 
-                    <label className="cursor-pointer border rounded-md px-3 py-1">
-                        Load JSON
-                        <input type="file" accept=".json" className="hidden" onChange={loadJSON} />
-                    </label>
-                </div>
+                        {activeType === "shape" && (
+                            <>
+                                <label>
+                                    Fill:
+                                    <input
+                                        type="color"
+                                        value={activeAttrs.fill || "#000000"}
+                                        onChange={(e) => updateAttr("fill", e.target.value)}
+                                        className="ml-2"
+                                    />
+                                </label>
+                                <label>
+                                    Stroke:
+                                    <input
+                                        type="color"
+                                        value={activeAttrs.stroke || "#000000"}
+                                        onChange={(e) => updateAttr("stroke", e.target.value)}
+                                        className="ml-2"
+                                    />
+                                </label>
+                                <label>
+                                    Stroke Width:
+                                    <input
+                                        type="number"
+                                        value={activeAttrs.strokeWidth || 1}
+                                        onChange={(e) => updateAttr("strokeWidth", parseFloat(e.target.value))}
+                                        className="ml-2 w-20"
+                                    />
+                                </label>
+                            </>
+                        )}
 
-                <div className="flex justify-center items-center overflow-auto w-full">
-                    <canvas ref={canvasEl} className="border shadow-lg rounded-lg" />
+                        {activeType === "image" && (
+                            <>
+                                <label>
+                                    Opacity:
+                                    <input
+                                        type="range"
+                                        min={0}
+                                        max={1}
+                                        step={0.05}
+                                        value={activeAttrs.opacity || 1}
+                                        onChange={(e) => updateAttr("opacity", parseFloat(e.target.value))}
+                                        className="ml-2 w-40"
+                                    />
+                                </label>
+                            </>
+                        )}
+                    </div>
+                )}
+
+                <div className="flex justify-center items-center flex-1 overflow-auto">
+                    {!isReady && (
+                        <div className="flex items-center justify-center w-full h-full">
+                            <div className="text-lg">Loading canvas...</div>
+                        </div>
+                    )}
+                    <canvas 
+                        ref={canvasEl} 
+                        className="border shadow-lg rounded-lg bg-white"
+                        style={{ display: isReady ? 'block' : 'none' }}
+                    />
                 </div>
             </div>
-            {/* LEFT SIDEBAR */}
+
+            {/* ===== RIGHT SIDEBAR ===== */}
             <aside className="w-64 bg-white border-r shadow-md flex flex-col">
                 <div className="p-3 border-b flex justify-between items-center">
                     <h2 className="font-semibold text-lg">Projects</h2>
