@@ -20,8 +20,7 @@ interface Project {
     updatedAt: number;
 }
 
-type ActiveType = "text" | "shape" | "image" | "balloon" | "balloon-text" | "custom-element" | null;
-type LayoutType = "horizontal" | "vertical" | "wave" | "spiral" | "circle" | "arc";
+type ActiveType = "text" | "shape" | "image" | "balloon" | "balloon-text" | null;
 
 export default function EditorPage() {
     const canvasRef = useRef<fabricType.Canvas | null>(null);
@@ -34,39 +33,10 @@ export default function EditorPage() {
     const [activeType, setActiveType] = useState<ActiveType>(null);
     const [activeAttrs, setActiveAttrs] = useState<any>({});
     const [autoFitEnabled, setAutoFitEnabled] = useState(true);
-
-    // Balloon states
     const [balloonName, setBalloonName] = useState("");
     const [balloonColor, setBalloonColor] = useState("#e879f9");
     const [textColor, setTextColor] = useState("#000000");
-
-    // Custom element states
-    const [customElement, setCustomElement] = useState<File | null>(null);
-    const [elementPreview, setElementPreview] = useState<string>("");
-    const [elementName, setElementName] = useState("");
-    const [elementSize, setElementSize] = useState<number>(100);
-    const [selectedLayout, setSelectedLayout] = useState<LayoutType>("horizontal");
-    const [layoutParams, setLayoutParams] = useState({
-        waveAmplitude: 50,
-        spiralTightness: 15,
-        circleRadius: 150,
-        arcRadius: 200,
-    });
-
     const isApplyingRef = useRef(false);
-
-    // Track custom element groups for layout preservation
-    const customElementGroups = useRef<Map<string, { type: LayoutType; params: any; timestamp: number }>>(new Map());
-
-    // Layout options configuration
-    const layoutOptions = [
-        { value: "horizontal", label: "Horizontal", icon: "→" },
-        { value: "vertical", label: "Vertical", icon: "↓" },
-        { value: "wave", label: "Wave", icon: "〰️" },
-        { value: "spiral", label: "Spiral", icon: "🌀" },
-        { value: "circle", label: "Circle", icon: "⭕" },
-        { value: "arc", label: "Arc", icon: "⌒" },
-    ];
 
     // ===================== STATE SAVE / LOAD =====================
     const saveCurrentState = () => {
@@ -197,10 +167,10 @@ export default function EditorPage() {
             const fabric = (fabricModule as any).fabric || fabricModule.default || fabricModule;
             fabricRef.current = fabric;
 
-            // EXTEND FABRIC TO INCLUDE LAYOUT PROPERTIES
             fabric.Object.prototype.toObject = (function (toObject) {
                 return function (this: any, propertiesToInclude: string[] = []) {
-                    propertiesToInclude = propertiesToInclude.concat([
+                    return toObject.call(this, [
+                        ...propertiesToInclude,
                         "editableId",
                         "isLocked",
                         "selectable",
@@ -215,13 +185,7 @@ export default function EditorPage() {
                         "letter",
                         "balloonColor",
                         "textColor",
-                        "elementColor",
-                        "layoutType", // ADD LAYOUT TYPE
-                        "layoutParams", // ADD LAYOUT PARAMS
-                        "elementSize", // ADD ELEMENT SIZE
-                        "groupTimestamp", // ADD GROUP IDENTIFIER
                     ]);
-                    return toObject.call(this, propertiesToInclude);
                 };
             })(fabric.Object.prototype.toObject);
 
@@ -292,266 +256,6 @@ export default function EditorPage() {
         const updated = projects.filter((p) => p.name !== name);
         localStorage.setItem("projects", JSON.stringify(updated));
         setProjects(updated);
-    };
-
-    // ===================== CUSTOM ELEMENT FUNCTIONS =====================
-    const handleElementUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        setCustomElement(file);
-
-        const reader = new FileReader();
-        reader.onload = () => {
-            setElementPreview(reader.result as string);
-        };
-        reader.readAsDataURL(file);
-    };
-
-    const createCustomElementWithText = (letter: string, index: number, total: number) => {
-        const fabric = fabricRef.current;
-        if (!fabric || !canvasRef.current || !elementPreview) return;
-
-        const containerSize = elementSize;
-        const canvasWidth = canvasRef.current.width || 1000;
-        const canvasHeight = canvasRef.current.height || 600;
-
-        // Calculate position based on selected layout
-        let x = 0;
-        let y = 0;
-
-        switch (selectedLayout) {
-            case "horizontal":
-                // Horizontal line
-                const horizontalSpacing = containerSize + 20;
-                const totalHorizontalWidth = (total - 1) * horizontalSpacing;
-                x = (canvasWidth - totalHorizontalWidth) / 2 + (index * horizontalSpacing);
-                y = canvasHeight / 2;
-                break;
-
-            case "vertical":
-                // Vertical line
-                const verticalSpacing = containerSize + 20;
-                const totalVerticalHeight = (total - 1) * verticalSpacing;
-                x = canvasWidth / 2;
-                y = (canvasHeight - totalVerticalHeight) / 2 + (index * verticalSpacing);
-                break;
-
-            case "wave":
-                // Wave pattern
-                const waveSpacing = containerSize + 15;
-                const totalWaveWidth = (total - 1) * waveSpacing;
-                x = (canvasWidth - totalWaveWidth) / 2 + (index * waveSpacing);
-                y = canvasHeight / 2 + Math.sin(index * 0.8) * layoutParams.waveAmplitude;
-                break;
-
-            case "spiral":
-                // Spiral pattern
-                const spiralRadius = 10 + (index * layoutParams.spiralTightness);
-                const spiralAngle = index * 0.8; // radians
-                x = canvasWidth / 2 + Math.cos(spiralAngle) * spiralRadius;
-                y = canvasHeight / 2 + Math.sin(spiralAngle) * spiralRadius;
-                break;
-
-            case "circle":
-                // Circular pattern
-                const circleRadius = Math.min(layoutParams.circleRadius, total * 20);
-                const angle = (index / total) * Math.PI * 2;
-                x = canvasWidth / 2 + Math.cos(angle) * circleRadius;
-                y = canvasHeight / 2 + Math.sin(angle) * circleRadius;
-                break;
-
-            case "arc":
-                // Arc pattern (semi-circle)
-                const arcRadius = Math.min(layoutParams.arcRadius, total * 25);
-                const arcAngle = Math.PI / 2 + (index / (total - 1 || 1)) * Math.PI;
-                x = canvasWidth / 2 + Math.cos(arcAngle) * arcRadius;
-                y = canvasHeight / 2 + Math.sin(arcAngle) * arcRadius;
-                break;
-
-            default:
-                // Default to horizontal
-                const defaultSpacing = containerSize + 20;
-                const totalDefaultWidth = (total - 1) * defaultSpacing;
-                x = (canvasWidth - totalDefaultWidth) / 2 + (index * defaultSpacing);
-                y = canvasHeight / 2;
-        }
-
-        // Create image element
-        const imgEl = new Image();
-        imgEl.onload = () => {
-            // Calculate scale to fit within the square container while maintaining aspect ratio
-            const scaleX = containerSize / imgEl.width;
-            const scaleY = containerSize / imgEl.height;
-            const scale = Math.min(scaleX, scaleY);
-
-            const scaledWidth = imgEl.width * scale;
-            const scaledHeight = imgEl.height * scale;
-
-            const elementImg = new fabric.Image(imgEl, {
-                left: 0,
-                top: 0,
-                originX: 'center',
-                originY: 'center',
-                scaleX: scale,
-                scaleY: scale,
-                selectable: false,
-                evented: false,
-            });
-
-            // Create a background rectangle to ensure consistent sizing
-            const backgroundRect = new fabric.Rect({
-                width: containerSize,
-                height: containerSize,
-                left: 0,
-                top: 0,
-                originX: 'center',
-                originY: 'center',
-                fill: 'transparent',
-                stroke: 'transparent',
-                selectable: false,
-                evented: false,
-            });
-
-            // Adjust font size based on container size
-            const fontSize = Math.max(16, containerSize * 0.3);
-
-            // Create text for the element
-            const elementText = new fabric.Text(letter, {
-                fontSize: fontSize,
-                fill: textColor,
-                fontFamily: 'Arial, sans-serif',
-                fontWeight: 'bold',
-                left: 0,
-                top: 0,
-                originX: 'center',
-                originY: 'center',
-                selectable: false,
-                evented: false,
-            });
-
-            // Create group with background, image, and text
-            const groupTimestamp = Date.now();
-            const elementGroup = new fabric.Group([backgroundRect, elementImg, elementText], {
-                left: x,
-                top: y,
-                editableId: `custom_element_${groupTimestamp}_${index}`,
-                isLocked: false,
-                letter: letter,
-                elementColor: "transparent", // Background is transparent
-                textColor: textColor,
-                selectable: true,
-                evented: true,
-                width: containerSize,
-                height: containerSize,
-                // CRITICAL: SAVE LAYOUT INFORMATION
-                layoutType: selectedLayout,
-                layoutParams: layoutParams,
-                elementSize: containerSize,
-                groupTimestamp: groupTimestamp, // Same timestamp for all elements in this group
-            });
-
-            canvasRef.current.add(elementGroup);
-            canvasRef.current.renderAll();
-
-            // Track this group for layout preservation
-            customElementGroups.current.set(`group_${groupTimestamp}`, {
-                type: selectedLayout,
-                params: layoutParams,
-                timestamp: groupTimestamp
-            });
-        };
-        imgEl.src = elementPreview;
-    };
-
-    const addElementName = () => {
-        if (!elementName.trim()) {
-            alert("Please enter a name for the elements");
-            return;
-        }
-
-        if (!elementPreview) {
-            alert("Please upload an element first");
-            return;
-        }
-
-        const name = elementName.trim().toUpperCase();
-        const letters = name.split('');
-
-        letters.forEach((letter, index) => {
-            createCustomElementWithText(letter, index, letters.length);
-        });
-
-        // Clear the input after creating elements
-        setElementName("");
-    };
-
-    const addSingleElement = () => {
-        if (!fabricRef.current || !canvasRef.current || !elementPreview) return;
-        const fabric = fabricRef.current;
-
-        const imgEl = new Image();
-        imgEl.onload = () => {
-            const containerSize = elementSize;
-
-            // Calculate scale to fit within the square container while maintaining aspect ratio
-            const scaleX = containerSize / imgEl.width;
-            const scaleY = containerSize / imgEl.height;
-            const scale = Math.min(scaleX, scaleY);
-
-            const scaledWidth = imgEl.width * scale;
-            const scaledHeight = imgEl.height * scale;
-
-            const elementImg = new fabric.Image(imgEl, {
-                left: 0,
-                top: 0,
-                originX: 'center',
-                originY: 'center',
-                scaleX: scale,
-                scaleY: scale,
-                selectable: false,
-                evented: false,
-            });
-
-            // Create a background rectangle to ensure consistent sizing
-            const backgroundRect = new fabric.Rect({
-                width: containerSize,
-                height: containerSize,
-                left: 0,
-                top: 0,
-                originX: 'center',
-                originY: 'center',
-                fill: 'transparent',
-                stroke: 'transparent',
-                selectable: false,
-                evented: false,
-            });
-
-            const groupTimestamp = Date.now();
-            const elementGroup = new fabric.Group([backgroundRect, elementImg], {
-                left: 250,
-                top: 150,
-                editableId: `custom_element_${groupTimestamp}`,
-                isLocked: false,
-                elementColor: "transparent",
-                selectable: true,
-                evented: true,
-                width: containerSize,
-                height: containerSize,
-                elementSize: containerSize,
-                groupTimestamp: groupTimestamp,
-            });
-
-            canvasRef.current.add(elementGroup);
-            canvasRef.current.renderAll();
-        };
-        imgEl.src = elementPreview;
-    };
-
-    const clearElementUpload = () => {
-        setCustomElement(null);
-        setElementPreview("");
-        setElementName("");
     };
 
     // ===================== BALLOON WITH TEXT FUNCTIONS =====================
@@ -827,9 +531,6 @@ export default function EditorPage() {
                 setActiveType("balloon");
             }
         }
-        else if (obj.type === "group" && obj.editableId?.includes("custom_element")) {
-            setActiveType("custom-element");
-        }
 
         setActiveAttrs(obj);
     };
@@ -846,203 +547,10 @@ export default function EditorPage() {
     return (
         <div className="flex h-screen bg-gray-100">
             {/* ===== LEFT TOOLS ===== */}
-            <div className="flex flex-col w-[220px] gap-2 bg-white shadow p-3 border-b overflow-y-scroll">
-                <h3 className="font-semibold mb-2">Custom Elements</h3>
+            <div className="flex flex-col w-[220px] gap-2 bg-white shadow p-3 border-b">
+                <h3 className="font-semibold mb-2">Balloons</h3>
 
-                {/* Element Upload & Name Input */}
-                <div className="space-y-2 mb-2">
-                    {/* Element Upload */}
-                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-3 text-center">
-                        {elementPreview ? (
-                            <div className="space-y-2">
-                                <div className="relative w-16 h-16 mx-auto">
-                                    <img
-                                        src={elementPreview}
-                                        alt="Uploaded element"
-                                        className="w-full h-full object-contain"
-                                    />
-                                </div>
-                                <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={clearElementUpload}
-                                    className="w-full text-xs"
-                                >
-                                    Change Element
-                                </Button>
-                            </div>
-                        ) : (
-                            <label className="cursor-pointer">
-                                <div className="text-gray-500 text-sm">
-                                    <div>📁 Upload Element</div>
-                                    <div className="text-xs mt-1">PNG, JPG, SVG</div>
-                                </div>
-                                <input
-                                    type="file"
-                                    accept="image/*"
-                                    className="hidden"
-                                    onChange={handleElementUpload}
-                                />
-                            </label>
-                        )}
-                    </div>
-
-                    {/* Name Input */}
-                    <input
-                        type="text"
-                        value={elementName}
-                        onChange={(e) => setElementName(e.target.value)}
-                        placeholder="Enter name for elements"
-                        className="w-full border border-gray-300 rounded p-2 text-sm"
-                        maxLength={20}
-                    />
-
-                    {/* Text Color */}
-                    <div>
-                        <label className="text-xs block mb-1">Text Color</label>
-                        <input
-                            type="color"
-                            value={textColor}
-                            onChange={(e) => setTextColor(e.target.value)}
-                            className="w-full h-8 border rounded"
-                        />
-                    </div>
-
-                    {/* Element Size */}
-                    <div>
-                        <label className="text-xs block mb-1">Element Size: {elementSize}px</label>
-                        <input
-                            type="range"
-                            min="50"
-                            max="200"
-                            step="10"
-                            value={elementSize}
-                            onChange={(e) => setElementSize(parseInt(e.target.value))}
-                            className="w-full"
-                        />
-                    </div>
-
-                    {/* Layout Selection */}
-                    <div className="mt-2">
-                        <label className="text-xs block mb-2 font-medium">Layout</label>
-                        <div className="grid grid-cols-3 gap-2">
-                            {layoutOptions.map((layout) => (
-                                <button
-                                    key={layout.value}
-                                    onClick={() => setSelectedLayout(layout.value as LayoutType)}
-                                    className={`p-2 border rounded text-xs flex flex-col items-center justify-center transition-all ${selectedLayout === layout.value
-                                        ? 'bg-purple-600 text-white border-purple-600'
-                                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                                        }`}
-                                >
-                                    <span className="text-lg mb-1">{layout.icon}</span>
-                                    <span>{layout.label}</span>
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Layout Preview/Description */}
-                    <div className="mt-1 text-xs text-gray-500 text-center">
-                        {selectedLayout === "horizontal" && "Letters arranged in a straight horizontal line"}
-                        {selectedLayout === "vertical" && "Letters arranged in a straight vertical line"}
-                        {selectedLayout === "wave" && "Letters arranged in a wave pattern"}
-                        {selectedLayout === "spiral" && "Letters arranged in a spiral from center"}
-                        {selectedLayout === "circle" && "Letters arranged in a circular pattern"}
-                        {selectedLayout === "arc" && "Letters arranged in an arc (semi-circle)"}
-                    </div>
-
-                    {/* Layout Parameters */}
-                    {selectedLayout === "wave" && (
-                        <div className="mt-2">
-                            <label className="text-xs block mb-1">Wave Height: {layoutParams.waveAmplitude}px</label>
-                            <input
-                                type="range"
-                                min="20"
-                                max="100"
-                                value={layoutParams.waveAmplitude}
-                                onChange={(e) => setLayoutParams(prev => ({
-                                    ...prev,
-                                    waveAmplitude: parseInt(e.target.value)
-                                }))}
-                                className="w-full"
-                            />
-                        </div>
-                    )}
-
-                    {selectedLayout === "spiral" && (
-                        <div className="mt-2">
-                            <label className="text-xs block mb-1">Spiral Tightness: {layoutParams.spiralTightness}px</label>
-                            <input
-                                type="range"
-                                min="5"
-                                max="30"
-                                value={layoutParams.spiralTightness}
-                                onChange={(e) => setLayoutParams(prev => ({
-                                    ...prev,
-                                    spiralTightness: parseInt(e.target.value)
-                                }))}
-                                className="w-full"
-                            />
-                        </div>
-                    )}
-
-                    {selectedLayout === "circle" && (
-                        <div className="mt-2">
-                            <label className="text-xs block mb-1">Circle Radius: {layoutParams.circleRadius}px</label>
-                            <input
-                                type="range"
-                                min="50"
-                                max="300"
-                                value={layoutParams.circleRadius}
-                                onChange={(e) => setLayoutParams(prev => ({
-                                    ...prev,
-                                    circleRadius: parseInt(e.target.value)
-                                }))}
-                                className="w-full"
-                            />
-                        </div>
-                    )}
-
-                    {selectedLayout === "arc" && (
-                        <div className="mt-2">
-                            <label className="text-xs block mb-1">Arc Radius: {layoutParams.arcRadius}px</label>
-                            <input
-                                type="range"
-                                min="50"
-                                max="300"
-                                value={layoutParams.arcRadius}
-                                onChange={(e) => setLayoutParams(prev => ({
-                                    ...prev,
-                                    arcRadius: parseInt(e.target.value)
-                                }))}
-                                className="w-full"
-                            />
-                        </div>
-                    )}
-
-                    {/* Action Buttons */}
-                    <Button
-                        size='lg'
-                        onClick={addElementName}
-                        className="w-full bg-purple-600 hover:bg-purple-700"
-                        disabled={!elementPreview}
-                    >
-                        Create Name Elements
-                    </Button>
-
-                    <Button
-                        size='lg'
-                        onClick={addSingleElement}
-                        disabled={!elementPreview}
-                        variant="outline"
-                    >
-                        Single Element
-                    </Button>
-                </div>
-
-                {/* Keep the original balloons as an option */}
-                <h3 className="font-semibold mt-4 mb-2">Balloons (Legacy)</h3>
+                {/* Balloon Name Input */}
                 <div className="space-y-2 mb-2">
                     <input
                         type="text"
@@ -1075,9 +583,9 @@ export default function EditorPage() {
                     <Button
                         size='lg'
                         onClick={addBalloonName}
-                        className="w-full bg-pink-600 hover:bg-pink-700"
+                        className="w-full bg-purple-600 hover:bg-purple-700"
                     >
-                        Create Balloons
+                        Create Name Balloons
                     </Button>
                 </div>
 
@@ -1217,14 +725,14 @@ export default function EditorPage() {
                                 <label className="text-sm font-medium">Color</label>
                                 <input
                                     type="color"
-                                    value={activeAttrs.fill || activeAttrs.balloonColor || activeAttrs.elementColor || "#000000"}
+                                    value={activeAttrs.fill || activeAttrs.balloonColor || "#000000"}
                                     onChange={(e) => updateAttr("fill", e.target.value)}
                                     className="w-full h-10 border rounded"
                                 />
                             </div>
 
-                            {/* For balloon text and custom elements, show letter editing */}
-                            {(activeType === "balloon-text" || activeType === "custom-element") && (
+                            {/* For balloon text, show letter editing */}
+                            {activeType === "balloon-text" && (
                                 <div>
                                     <label className="text-sm font-medium">Letter</label>
                                     <input
@@ -1245,29 +753,6 @@ export default function EditorPage() {
                                         }}
                                         className="w-full border border-gray-300 rounded p-2 text-sm"
                                         maxLength={1}
-                                    />
-                                </div>
-                            )}
-
-                            {/* Text Color for elements with text */}
-                            {(activeType === "balloon-text" || activeType === "custom-element") && (
-                                <div>
-                                    <label className="text-sm font-medium">Text Color</label>
-                                    <input
-                                        type="color"
-                                        value={activeAttrs.textColor || "#000000"}
-                                        onChange={(e) => {
-                                            updateAttr("textColor", e.target.value);
-                                            const obj = canvasRef.current?.getActiveObject();
-                                            if (obj && obj.type === 'group') {
-                                                const textObj = obj.getObjects().find((o: any) => o.type === 'text');
-                                                if (textObj) {
-                                                    textObj.set('fill', e.target.value);
-                                                    canvasRef.current?.renderAll();
-                                                }
-                                            }
-                                        }}
-                                        className="w-full h-10 border rounded"
                                     />
                                 </div>
                             )}
@@ -1304,9 +789,6 @@ export default function EditorPage() {
                                 )}
                                 {activeAttrs.letter && (
                                     <div>Letter: {activeAttrs.letter}</div>
-                                )}
-                                {activeAttrs.layoutType && (
-                                    <div>Layout: {activeAttrs.layoutType}</div>
                                 )}
                             </div>
                         </div>

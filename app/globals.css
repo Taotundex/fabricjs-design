@@ -120,3 +120,7 @@
     @apply bg-background text-foreground;
   }
 }
+
+.overflow-y-scroll::-webkit-scrollbar {
+  display: none !important;
+}
