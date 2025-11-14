@@ -14,7 +14,7 @@ interface Project {
 
 interface EditableItem {
     id: string;
-    type: "text" | "image" | "shape" | "balloon" | "balloon-text" | "custom-element";
+    type: "text" | "image" | "shape" | "custom-element";
     label: string;
     originalValue?: string;
     color?: string;
@@ -45,7 +45,6 @@ export default function CustomerPage() {
     const [formValues, setFormValues] = useState<Record<string, string>>({});
     const [colorValues, setColorValues] = useState<Record<string, string>>({});
     const [textColorValues, setTextColorValues] = useState<Record<string, string>>({});
-    const [balloonName, setBalloonName] = useState("");
     const [customElementName, setCustomElementName] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [isCanvasReady, setIsCanvasReady] = useState(false);
@@ -57,11 +56,8 @@ export default function CustomerPage() {
     const safeDisposeCanvas = () => {
         if (canvasRef.current) {
             try {
-                // Remove all event listeners first
                 canvasRef.current.off();
-                // Clear all objects
                 canvasRef.current.clear();
-                // Dispose canvas safely
                 canvasRef.current.dispose();
             } catch (error) {
                 console.warn("Safe dispose warning:", error);
@@ -99,7 +95,6 @@ export default function CustomerPage() {
                             "lockScalingY",
                             "hasControls",
                             "letter",
-                            "balloonColor",
                             "textColor",
                             "elementColor",
                             "layoutType",
@@ -182,7 +177,6 @@ export default function CustomerPage() {
             const values: Record<string, string> = {};
             const colors: Record<string, string> = {};
             const textColors: Record<string, string> = {};
-            let foundBalloonLetters = "";
             let foundCustomElementLetters = "";
 
             console.log("Processing objects:", c.getObjects().length);
@@ -218,7 +212,7 @@ export default function CustomerPage() {
                         padding: 0,
                     });
 
-                    // FIXED: Check if object is NOT locked (isLocked should be false or undefined)
+                    // Check if object is NOT locked (isLocked should be false or undefined)
                     const isUnlocked = obj.isLocked === false || obj.isLocked === undefined;
 
                     if (isUnlocked && obj.editableId) {
@@ -246,30 +240,7 @@ export default function CustomerPage() {
                                 color: obj.fill
                             });
                             colors[obj.editableId] = obj.fill || "#000000";
-                        } else if (obj.type === "group" && obj.editableId?.includes("balloon")) {
-                            if (obj.letter) {
-                                foundBalloonLetters += obj.letter;
-                                editable.push({
-                                    id: obj.editableId,
-                                    type: "balloon-text",
-                                    label: `Balloon Letter: ${obj.letter}`,
-                                    letter: obj.letter,
-                                    color: obj.balloonColor || obj.fill,
-                                    textColor: obj.textColor
-                                });
-                                colors[obj.editableId] = obj.balloonColor || obj.fill || "#000000";
-                                textColors[obj.editableId] = obj.textColor || "#000000";
-                            } else {
-                                editable.push({
-                                    id: obj.editableId,
-                                    type: "balloon",
-                                    label: `Balloon ${editable.filter(e => e.type === "balloon").length + 1}`,
-                                    color: obj.balloonColor || obj.fill
-                                });
-                                colors[obj.editableId] = obj.balloonColor || obj.fill || "#000000";
-                            }
                         } else if (obj.type === "group" && obj.editableId?.includes("custom_element")) {
-                            // Store layout information for custom elements
                             if (obj.letter) {
                                 foundCustomElementLetters += obj.letter;
 
@@ -341,7 +312,6 @@ export default function CustomerPage() {
             });
 
             console.log("🎯 Final editable items found:", editable.length);
-            console.log("🔤 Balloon letters found:", foundBalloonLetters);
             console.log("🔤 Custom Element letters found:", foundCustomElementLetters);
             console.log("📐 Custom Element Layouts:", Array.from(customElementLayouts.current.entries()));
 
@@ -349,7 +319,6 @@ export default function CustomerPage() {
             setFormValues(values);
             setColorValues(colors);
             setTextColorValues(textColors);
-            setBalloonName(foundBalloonLetters);
             setCustomElementName(foundCustomElementLetters);
 
             // Safe render
@@ -371,7 +340,6 @@ export default function CustomerPage() {
         console.log("🔄 Loading project:", project.name);
         setIsLoading(true);
         setSelectedProject(project);
-        setBalloonName("");
         setCustomElementName("");
 
         try {
@@ -647,6 +615,42 @@ export default function CustomerPage() {
         });
     };
 
+    // ===================== GLOBAL TEXT COLOR UPDATE FOR CUSTOM ELEMENTS =====================
+    const updateAllCustomElementsTextColor = (color: string) => {
+        safeCanvasOperation(() => {
+            const c = canvasRef.current;
+            if (!c) return;
+
+            const objects = c.getObjects();
+            let updated = false;
+
+            objects.forEach((obj: any) => {
+                if (obj.type === "group" && obj.editableId?.includes("custom_element")) {
+                    const children = obj.getObjects();
+                    const textObj = children.find((o: any) => o.type === "text" || o.type === "i-text");
+
+                    if (textObj) {
+                        textObj.set('fill', color);
+                        obj.textColor = color; // Update group's textColor property
+                        updated = true;
+                    }
+                }
+            });
+
+            if (updated) {
+                c.renderAll();
+                // Update text color values state
+                const newTextColorValues: Record<string, string> = {};
+                editableItems.forEach(item => {
+                    if (item.type === "custom-element") {
+                        newTextColorValues[item.id] = color;
+                    }
+                });
+                setTextColorValues(prev => ({ ...prev, ...newTextColorValues }));
+            }
+        });
+    };
+
     // ===================== SAFE UPDATE FUNCTIONS =====================
     const handleTextChange = (id: string, value: string) => {
         setFormValues((prev) => ({ ...prev, [id]: value }));
@@ -675,7 +679,7 @@ export default function CustomerPage() {
                     // For regular text elements
                     obj.set('fill', color);
                 } else if (obj.type === "group") {
-                    // For balloon text and custom element text
+                    // For custom element text
                     const textObj = obj.getObjects().find((o: any) => o.type === "text");
                     if (textObj) {
                         textObj.set('fill', color);
@@ -696,13 +700,7 @@ export default function CustomerPage() {
 
             const obj = c.getObjects().find((o: any) => o.editableId === id);
             if (obj) {
-                if (obj.type === "group" && obj.editableId?.includes("balloon")) {
-                    const circle = obj.getObjects().find((o: any) => o.type === "circle");
-                    if (circle) {
-                        circle.set('fill', color);
-                    }
-                    obj.set('balloonColor', color);
-                } else if (obj.type === "group" && obj.editableId?.includes("custom_element")) {
+                if (obj.type === "group" && obj.editableId?.includes("custom_element")) {
                     // For custom elements, change the background color
                     const rect = obj.getObjects().find((o: any) => o.type === "rect");
                     if (rect) {
@@ -919,23 +917,17 @@ export default function CustomerPage() {
 
                 {selectedProject && (
                     <div className="p-4 space-y-6 border-b">
-                        {/* Balloon Name Section */}
+                        {/* Global Text Color for Custom Elements */}
                         <div className="space-y-2">
-                            <h3 className="font-medium text-sm">Balloon Name</h3>
+                            <h3 className="font-medium text-sm">Global Text Color (All Custom Elements)</h3>
                             <input
-                                type="text"
-                                value={balloonName}
-                                onChange={(e) => setBalloonName(e.target.value.toUpperCase())}
-                                placeholder="Enter balloon name"
-                                className="w-full border border-gray-300 rounded p-2 text-sm font-medium text-center"
-                                maxLength={20}
+                                type="color"
+                                value={textColorValues[editableItems.find(item => item.type === "custom-element")?.id || ""] || "#000000"}
+                                onChange={(e) => updateAllCustomElementsTextColor(e.target.value)}
+                                className="w-full h-10 border border-gray-300 rounded cursor-pointer"
                             />
-                            <div className="flex justify-between text-xs text-gray-500">
-                                <span>{balloonName.length}/20 characters</span>
-                                <span>{20 - balloonName.length} remaining</span>
-                            </div>
                             <p className="text-xs text-gray-500 text-center">
-                                Type to update all balloons automatically
+                                Changes text color for ALL custom elements
                             </p>
                         </div>
 
@@ -1024,7 +1016,7 @@ export default function CustomerPage() {
                                 </>
                             )}
 
-                            {(item.type === "shape" || item.type === "balloon") && (
+                            {item.type === "shape" && (
                                 <>
                                     <label className="text-xs text-gray-600">Color</label>
                                     <input
@@ -1045,16 +1037,14 @@ export default function CustomerPage() {
                                 </>
                             )}
 
-                            {(item.type === "balloon-text" || item.type === "custom-element") && (
+                            {item.type === "custom-element" && (
                                 <>
                                     <div className="grid grid-cols-2 gap-2">
                                         <div>
-                                            <label className="text-xs text-gray-600">
-                                                {item.type === "balloon-text" ? "Balloon Color" : "Element Color"}
-                                            </label>
+                                            <label className="text-xs text-gray-600">Element Color</label>
                                             <input
                                                 type="color"
-                                                value={colorValues[item.id] || (item.type === "balloon-text" ? "#e879f9" : "#ffffff")}
+                                                value={colorValues[item.id] || "#ffffff"}
                                                 onChange={(e) => handleColorChange(item.id, e.target.value)}
                                                 className="w-full h-10 border border-gray-300 rounded cursor-pointer"
                                             />
@@ -1105,7 +1095,6 @@ export default function CustomerPage() {
                                 setFormValues({});
                                 setColorValues({});
                                 setTextColorValues({});
-                                setBalloonName("");
                                 setCustomElementName("");
                                 if (selectedProject) {
                                     loadProject(selectedProject);
