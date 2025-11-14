@@ -1812,7 +1812,7 @@ export default function EditorPage() {
 
                 {/* Properties Panel */}
                 {activeType && (
-                    <div className="border-t p-4">
+                    <div className="border-t p-4 h-[500px] overflow-y-scroll">
                         <h3 className="font-semibold mb-3">Properties</h3>
                         <div className="space-y-3">
 
