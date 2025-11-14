@@ -730,7 +730,7 @@ export default function CustomerPage() {
                 return;
             }
 
-            // Store the properties before removing
+            // Store ALL properties before removing, including border radius
             const existingProps = {
                 left: existingObj.left,
                 top: existingObj.top,
@@ -740,7 +740,12 @@ export default function CustomerPage() {
                 scaleY: existingObj.scaleY,
                 originX: existingObj.originX,
                 originY: existingObj.originY,
-                angle: existingObj.angle
+                angle: existingObj.angle,
+                // PRESERVE BORDER RADIUS PROPERTIES
+                rx: existingObj.rx || 0,
+                ry: existingObj.ry || 0,
+                // Preserve clipPath if it exists
+                clipPath: existingObj.clipPath
             };
 
             const reader = new FileReader();
@@ -769,6 +774,9 @@ export default function CustomerPage() {
                         lockScalingY: true,
                         hasControls: false,
                         hasBorders: false,
+                        // PRESERVE BORDER RADIUS
+                        rx: existingProps.rx,
+                        ry: existingProps.ry,
                     });
 
                     // Calculate exact scale to match original dimensions exactly
@@ -784,14 +792,31 @@ export default function CustomerPage() {
                         scaleY: scaleY
                     });
 
+                    // REAPPLY BORDER RADIUS CLIPPING if border radius exists
+                    if (existingProps.rx > 0 || existingProps.ry > 0) {
+                        const clipRect = new fabric.Rect({
+                            left: -fabricImg.width! / 2,
+                            top: -fabricImg.height! / 2,
+                            width: fabricImg.width!,
+                            height: fabricImg.height!,
+                            rx: existingProps.rx,
+                            ry: existingProps.ry,
+                            fill: 'transparent',
+                            selectable: false,
+                            evented: false,
+                        });
+                        fabricImg.set('clipPath', clipRect);
+                    }
+
                     // Remove old and add new
                     c.remove(existingObj);
                     c.add(fabricImg);
                     c.renderAll();
 
-                    console.log("✅ Image replaced successfully - exact dimensions", {
+                    console.log("✅ Image replaced successfully with preserved border radius", {
                         originalDimensions: { width: targetWidth, height: targetHeight },
                         newScale: { scaleX: scaleX, scaleY: scaleY },
+                        borderRadius: { rx: existingProps.rx, ry: existingProps.ry },
                         imageSourceSize: { width: imgElement.width, height: imgElement.height }
                     });
                 };
