@@ -1028,6 +1028,7 @@ export default function EditorPage() {
     };
 
     // ===================== IMAGE UPLOAD WITH RADIUS =====================
+    // ===================== IMAGE UPLOAD - WITH BORDER RADIUS BUT FULL IMAGE =====================
     const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -1040,43 +1041,37 @@ export default function EditorPage() {
                 const c = canvasRef.current;
                 if (!fabric || !c) return;
 
-                // Create the image
+                // FIXED: Create the image directly without restrictive group
                 const img = new fabric.Image(imgEl, {
-                    left: 0,
-                    top: 0,
-                    originX: "left",
-                    originY: "top",
-                    selectable: true,
-                    evented: true,
-                });
-
-                // Create a rounded rectangle for clipping
-                const clipRect = new fabric.Rect({
-                    left: 0,
-                    top: 0,
-                    width: imgEl.width,
-                    height: imgEl.height,
-                    rx: 0, // Initial border radius
-                    ry: 0, // Initial border radius
-                    fill: 'transparent',
-                    selectable: false,
-                    evented: false,
-                });
-
-                // Create the group with proper clipPath
-                const group = new fabric.Group([img], {
                     left: 100,
                     top: 100,
+                    originX: "center",
+                    originY: "center",
+                    selectable: true,
+                    evented: true,
                     editableId: `image_${Date.now()}`,
                     isLocked: false,
-                    // Store border radius directly on the group for easy access
-                    rx: 0,
-                    ry: 0,
-                    clipPath: clipRect,
+                    // Add border radius directly to the image
+                    rx: 0, // Initial border radius
+                    ry: 0, // Initial border radius
+                    clipPath: undefined, // Remove clipPath to show full image
                 });
 
-                c.add(group);
+                // Optional: Scale large images to fit better
+                const maxWidth = 400;
+                const maxHeight = 400;
+
+                if (imgEl.width > maxWidth || imgEl.height > maxHeight) {
+                    const scaleX = maxWidth / imgEl.width;
+                    const scaleY = maxHeight / imgEl.height;
+                    const scale = Math.min(scaleX, scaleY);
+
+                    img.scale(scale);
+                }
+
+                c.add(img);
                 c.renderAll();
+                saveCurrentState();
             };
 
             imgEl.src = reader.result as string;
@@ -1262,15 +1257,39 @@ export default function EditorPage() {
     };
 
     // ===================== FIXED updateAttr =====================
+    // ===================== FIXED updateAttr =====================
     const updateAttr = (attr: string, value: any) => {
         const obj = canvasRef.current?.getActiveObject();
         const fabric = fabricRef.current;
         if (!obj || !fabric) return;
 
-        // ===== Border radius handling (rect + image-group) =====
+        // ===== Border radius handling (rect + image) =====
         if (attr === "rx" || attr === "ry") {
-            // Image group with clipPath
-            if (obj.type === "group" && (obj as any).editableId?.includes("image_")) {
+            // Standalone image (not in group)
+            if (obj.type === "image" && (obj as any).editableId?.includes("image_")) {
+                obj.set(attr, value);
+
+                // For Fabric.js images, we need to use clipPath for border radius
+                if (value > 0) {
+                    const clipRect = new fabric.Rect({
+                        left: -obj.width! / 2,
+                        top: -obj.height! / 2,
+                        width: obj.width!,
+                        height: obj.height!,
+                        rx: attr === "rx" ? value : (obj.rx || 0),
+                        ry: attr === "ry" ? value : (obj.ry || 0),
+                        fill: 'transparent',
+                        selectable: false,
+                        evented: false,
+                    });
+                    obj.set('clipPath', clipRect);
+                } else {
+                    // Remove clipPath if no border radius
+                    obj.set('clipPath', undefined);
+                }
+            }
+            // Image group with clipPath (existing code)
+            else if (obj.type === "group" && (obj as any).editableId?.includes("image_")) {
                 const grp = obj as any;
 
                 // Update both the group properties AND the clipPath
@@ -1287,13 +1306,11 @@ export default function EditorPage() {
                 // Force re-render
                 forceClipPathUpdate(grp);
             }
-
             // Rectangles sync rx and ry
             else if (obj.type === "rect" && attr === "rx") {
                 obj.set("rx", value);
                 obj.set("ry", value);
             }
-
             // Regular objects
             else {
                 obj.set(attr, value);
@@ -1304,7 +1321,6 @@ export default function EditorPage() {
             setTimeout(updateActiveObject, 0);
             return; // Important: return early to prevent double execution
         }
-
         // ===== Custom elements (text + image + rect group) =====
         else if (obj.type === "group" && (obj as any).editableId?.includes("custom_element")) {
             const group = obj as any;
