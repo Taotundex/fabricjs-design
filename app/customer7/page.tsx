@@ -454,14 +454,14 @@ export default function CustomerPage() {
 
                         switch (layout.type) {
                             case "horizontal":
-                                const horizontalSpacing = elementSize + 20;
+                                const horizontalSpacing = elementSize + 8;
                                 const totalHorizontalWidth = (letters.length - 1) * horizontalSpacing;
                                 x = (canvasWidth - totalHorizontalWidth) / 2 + (index * horizontalSpacing);
                                 y = canvasHeight / 2;
                                 break;
 
                             case "vertical":
-                                const verticalSpacing = elementSize + 20;
+                                const verticalSpacing = elementSize + 8;
                                 const totalVerticalHeight = (letters.length - 1) * verticalSpacing;
                                 x = canvasWidth / 2;
                                 y = (canvasHeight - totalVerticalHeight) / 2 + (index * verticalSpacing);
@@ -482,7 +482,7 @@ export default function CustomerPage() {
                                 break;
 
                             case "circle":
-                                const circleRadius = Math.min(layout.params?.circleRadius || 150, letters.length * 20);
+                                const circleRadius = Math.min(layout.params?.circleRadius || 150, letters.length * 8);
                                 const angle = (index / letters.length) * Math.PI * 2;
                                 x = canvasWidth / 2 + Math.cos(angle) * circleRadius;
                                 y = canvasHeight / 2 + Math.sin(angle) * circleRadius;
@@ -1008,11 +1008,11 @@ export default function CustomerPage() {
                                 onChange={(e) => setCustomElementName(e.target.value.toUpperCase())}
                                 placeholder="Enter custom element name"
                                 className="w-full border border-gray-300 rounded p-2 text-sm font-medium text-center"
-                                maxLength={20}
+                                maxLength={8}
                             />
                             <div className="flex justify-between text-xs text-gray-500">
-                                <span>{customElementName.length}/20 characters</span>
-                                <span>{20 - customElementName.length} remaining</span>
+                                <span>{customElementName.length}/8 characters</span>
+                                <span>{8 - customElementName.length} remaining</span>
                             </div>
                             <p className="text-xs text-gray-500 text-center">
                                 Type to update all custom elements automatically (maintains original layout and size)
