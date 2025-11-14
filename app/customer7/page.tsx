@@ -381,6 +381,7 @@ export default function CustomerPage() {
         updateCustomElementName(customElementName);
     }, [customElementName]);
 
+
     const updateCustomElementName = (name: string) => {
         safeCanvasOperation(() => {
             const fabric = fabricRef.current;
@@ -390,21 +391,33 @@ export default function CustomerPage() {
             const nameToUse = name.trim().toUpperCase();
             const letters = nameToUse.split('');
 
-            // Remove existing custom element text items safely
-            const existingCustomElementTexts = c.getObjects().filter((obj: any) =>
-                obj.type === "group" && obj.editableId?.includes("custom_element") && obj.letter
+            console.log("🔄 Updating custom element name:", nameToUse);
+            console.log("📝 Letters to create:", letters);
+
+            // Remove ALL custom element groups including the first letter
+            const existingCustomElements = c.getObjects().filter((obj: any) =>
+                obj.type === "group" && (
+                    obj.editableId?.includes("custom_element") ||
+                    obj.editableId?.includes("customer_custom_element")
+                )
             );
 
-            existingCustomElementTexts.forEach(obj => {
+            console.log("🗑️ Removing ALL existing custom elements:", existingCustomElements.length);
+
+            existingCustomElements.forEach(obj => {
                 try {
                     c.remove(obj);
+                    console.log("✅ Removed element:", obj.editableId, "letter:", obj.letter);
                 } catch (error) {
                     console.warn("Error removing custom element:", error);
                 }
             });
 
+            // Force immediate canvas render to clear removed elements
+            c.renderAll();
+
             if (letters.length === 0) {
-                c.renderAll();
+                console.log("No letters to create, rendering empty canvas");
                 updateEditableItemsAfterCustomElementChange();
                 return;
             }
@@ -412,24 +425,27 @@ export default function CustomerPage() {
             // Get layout information
             const layoutEntries = Array.from(customElementLayouts.current.entries());
             if (layoutEntries.length === 0) {
-                console.log("No layout information found for custom elements");
+                console.log("❌ No layout information found for custom elements");
                 return;
             }
 
             // Use the first layout found
             const [layoutKey, layout] = layoutEntries[0];
-            console.log("Using layout for recreation:", layout);
+            console.log("🔄 Using layout for recreation:", layout);
+
+            let elementsCreated = 0;
+            const totalElements = letters.length;
 
             // Create new custom elements using the stored layout
             letters.forEach((letter, index) => {
                 try {
                     let x, y;
 
-                    // Use exact original positions if available
-                    if (layout.positions[index]) {
+                    // Use exact original positions if available and they match the count
+                    if (layout.positions.length === letters.length && layout.positions[index]) {
                         x = layout.positions[index].left;
                         y = layout.positions[index].top;
-                        console.log(`Using original position for ${letter}:`, { x, y });
+                        console.log(`📍 Using original position for '${letter}':`, { x, y, index });
                     } else {
                         // Calculate new position based on layout type
                         const canvasWidth = c.width || 1000;
@@ -486,7 +502,7 @@ export default function CustomerPage() {
                                 x = (canvasWidth - totalDefaultWidth) / 2 + (index * defaultSpacing);
                                 y = canvasHeight / 2;
                         }
-                        console.log(`Calculated position for ${letter}:`, { x, y, layout: layout.type });
+                        console.log(`📐 Calculated position for '${letter}':`, { x, y, layout: layout.type, index });
                     }
 
                     // Create new image element
@@ -558,19 +574,46 @@ export default function CustomerPage() {
                         });
 
                         c.add(customElementGroup);
-                        c.renderAll();
+                        elementsCreated++;
+                        console.log(`✅ Created custom element for '${letter}' at position ${index}`);
+
+                        // If this is the last element, render and update
+                        if (elementsCreated === totalElements) {
+                            console.log(`🎉 All ${elementsCreated} custom elements created, rendering canvas`);
+                            c.renderAll();
+                            updateEditableItemsAfterCustomElementChange();
+                        }
+                    };
+
+                    imgEl.onerror = () => {
+                        console.error(`❌ Failed to load image for letter '${letter}'`);
+                        elementsCreated++;
+
+                        // Even if image fails, continue with the process
+                        if (elementsCreated === totalElements) {
+                            c.renderAll();
+                            updateEditableItemsAfterCustomElementChange();
+                        }
                     };
 
                     // Set image source after defining onload
                     imgEl.src = layout.imageSrc;
 
                 } catch (error) {
-                    console.error("Error creating custom element:", error);
+                    console.error(`❌ Error creating custom element for '${letter}':`, error);
+                    elementsCreated++;
+
+                    if (elementsCreated === totalElements) {
+                        c.renderAll();
+                        updateEditableItemsAfterCustomElementChange();
+                    }
                 }
             });
 
-            c.renderAll();
-            updateEditableItemsAfterCustomElementChange();
+            // If no elements were created (empty name), still update
+            if (letters.length === 0) {
+                updateEditableItemsAfterCustomElementChange();
+            }
         });
     };
 
